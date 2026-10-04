@@ -10,14 +10,36 @@ body{margin:0;background:#090b12;color:#eee;font-family:Arial,"Malgun Gothic",sa
 #wrap{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
 canvas{background:#10131d;border:2px solid #31384b;box-shadow:0 0 40px #000;max-width:100vw;max-height:100vh}
 #help{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:13px;color:#9ea7bd;pointer-events:none}
-</style>
+
+#touchUI{display:none;position:fixed;inset:0;pointer-events:none;touch-action:none;z-index:1000}
+.touchBtn{position:absolute;z-index:1001;pointer-events:auto;border:2px solid rgba(255,255,255,.35);background:rgba(20,25,40,.72);color:#fff;border-radius:50%;font-weight:bold;user-select:none;-webkit-user-select:none;touch-action:none;display:flex;align-items:center;justify-content:center}
+#joy{left:22px;bottom:28px;width:125px;height:125px;border-radius:50%;font-size:12px;color:#aeb8ce}
+#joyKnob{position:absolute;width:52px;height:52px;border-radius:50%;background:rgba(110,140,255,.65);border:2px solid #fff;left:34px;top:34px;pointer-events:none}
+#attackBtn{right:24px;bottom:42px;width:92px;height:92px;background:rgba(180,55,55,.72);font-size:17px}
+.skillBtn{width:58px;height:58px;bottom:145px;font-size:18px}
+#skill1{right:190px}#skill2{right:122px}#skill3{right:54px}
+#townBtn{right:24px;top:24px;width:58px;height:58px;font-size:13px}
+#nextBtn{right:24px;bottom:150px;width:76px;height:54px;border-radius:18px;font-size:13px}
+#touchHint{position:absolute;left:50%;bottom:5px;transform:translateX(-50%);font-size:11px;color:#aeb8ce;white-space:nowrap;pointer-events:none}
+@media (max-width:700px){#touchUI{display:block}#help{display:none}canvas{width:100vw;height:auto;max-width:100vw;max-height:100vh;border-width:1px}}
+canvas{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;position:relative;z-index:1}\n@media (pointer:coarse){.touchBtn{touch-action:none!important}.touchBtn:active{transform:scale(.94)}}\n</style>
 </head>
 <body>
-<div id="wrap"><canvas id="game" width="1200" height="720"></canvas><div id="help">WASD 이동 · 마우스 공격 · 1/2/3 스킬 · I 인벤토리 · B 상점 · H 마을 · → 다음 방</div></div>
+<div id="wrap"><canvas id="game" width="1200" height="720"></canvas><div id="help">WASD 이동 · 마우스 공격 · 1/2/3 스킬 · I 인벤토리 · B 상점 · H 마을 · → 다음 방</div></div><div id="touchUI">
+  <div id="joy" class="touchBtn">이동<div id="joyKnob"></div></div>
+  <div id="attackBtn" class="touchBtn">공격</div>
+  <div id="skill1" class="touchBtn skillBtn">1</div>
+  <div id="skill2" class="touchBtn skillBtn">2</div>
+  <div id="skill3" class="touchBtn skillBtn">3</div>
+  <div id="townBtn" class="touchBtn">마을</div>
+  <div id="nextBtn" class="touchBtn">다음 ▶</div>
+  <div id="touchHint">화면을 가로로 돌리면 더 편하게 플레이할 수 있어요</div>
+</div>
 <script>
 const c=document.getElementById("game"),ctx=c.getContext("2d");
 const W=c.width,H=c.height;
 const keys={},mouse={x:600,y:360,down:false};
+let controlMode="pc";
 addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(["1","2","3"].includes(e.key)) skill(+e.key);if(e.key.toLowerCase()==="i"){inv=!inv;shop=false}
 if(e.key.toLowerCase()==="b"){shop=!shop;inv=false}
 if(e.key==="Escape"){inv=false;shop=false}if(e.key==="Enter"&&state==="title")startGame();
@@ -33,7 +55,110 @@ if(e.key==="ArrowRight" && state==="game" && roomCleared && !inv && !shop){
 }});
 addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
 c.addEventListener("mousemove",e=>{const r=c.getBoundingClientRect();mouse.x=(e.clientX-r.left)*W/r.width;mouse.y=(e.clientY-r.top)*H/r.height});
-c.addEventListener("mousedown",()=>mouse.down=true);addEventListener("mouseup",()=>mouse.down=false);
+c.addEventListener("mousedown",()=>mouse.down=true);
+addEventListener("mouseup",()=>mouse.down=false);
+
+// 제목 화면은 일반 클릭으로도 확실하게 처리
+c.addEventListener("click",e=>{
+  if(state!=="title") return;
+  const r=c.getBoundingClientRect();
+  mouse.x=(e.clientX-r.left)*W/r.width;
+  mouse.y=(e.clientY-r.top)*H/r.height;
+  mouse.down=true;
+  handleModeClick();
+  mouse.down=false;
+});
+
+// 모바일 터치 조작
+const touchUI=document.getElementById("touchUI"),joy=document.getElementById("joy"),knob=document.getElementById("joyKnob");
+const touchState={active:false,id:null,x:0,y:0,joyX:0,joyY:0,attack:false};
+let joyId=null,joyDX=0,joyDY=0;
+function touchPoint(t){
+  const r=c.getBoundingClientRect();
+  return {x:(t.clientX-r.left)*W/r.width,y:(t.clientY-r.top)*H/r.height};
+}
+function setMouseFromPoint(p){mouse.x=p.x;mouse.y=p.y;}
+function pressAction(el,fn){
+  el.addEventListener("touchstart",e=>{e.preventDefault();fn(e)},{passive:false});
+  el.addEventListener("pointerdown",e=>{if(e.pointerType!=="touch") return;e.preventDefault();fn(e);},{passive:false});
+}
+
+pressAction(document.getElementById("attackBtn"),e=>{
+  if(state==="game"&&!inv&&!shop){touchState.attack=true;mouse.down=true;}
+});
+document.getElementById("attackBtn").addEventListener("touchend",e=>{e.preventDefault();touchState.attack=false;mouse.down=false},{passive:false});
+document.getElementById("attackBtn").addEventListener("touchcancel",e=>{e.preventDefault();touchState.attack=false;mouse.down=false},{passive:false});
+
+pressAction(document.getElementById("skill1"),()=>{if(state==="game")skill(1)});
+pressAction(document.getElementById("skill2"),()=>{if(state==="game")skill(2)});
+pressAction(document.getElementById("skill3"),()=>{if(state==="game")skill(3)});
+pressAction(document.getElementById("townBtn"),()=>{
+  if(state==="game"){town=true;state="town";enemies=[];bullets=[];effects=[];roomCleared=false;awaitingNext=false;if(player){player.hp=player.maxhp;player.mp=player.maxmp;}}
+});
+pressAction(document.getElementById("nextBtn"),()=>{
+  if(state==="game"&&roomCleared&&!inv&&!shop){
+    if(finalBoss){finalBoss=false;roomCleared=false;awaitingNext=false;state="victory"}
+    else nextRoom();
+  }
+});
+
+
+// 모바일 브라우저 호환용: 터치 버튼은 Pointer Events로도 동작
+for(const id of ["attackBtn","skill1","skill2","skill3","townBtn","nextBtn"]){
+  const el=document.getElementById(id);
+  el.addEventListener("contextmenu",e=>e.preventDefault());
+}
+
+joy.addEventListener("touchstart",e=>{
+  e.preventDefault();
+  if(state!=="game"||controlMode!=="mobile") return;
+  const t=e.changedTouches[0];
+  joyId=t.identifier;
+  touchState.active=true;
+  updateJoy(t);
+},{passive:false});
+joy.addEventListener("touchmove",e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches) if(t.identifier===joyId) updateJoy(t);
+},{passive:false});
+joy.addEventListener("touchend",e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches) if(t.identifier===joyId){
+    joyId=null;touchState.active=false;touchState.joyX=touchState.joyY=0;joyDX=joyDY=0;knob.style.left="34px";knob.style.top="34px";
+  }
+},{passive:false});
+function updateJoy(t){
+  const r=joy.getBoundingClientRect(),cx=r.left+r.width/2,cy=r.top+r.height/2;
+  let dx=t.clientX-cx,dy=t.clientY-cy;
+  const max=42,d=Math.hypot(dx,dy);
+  if(d>max){dx=dx/d*max;dy=dy/d*max}
+  joyDX=dx/max;joyDY=dy/max;
+  touchState.joyX=joyDX;touchState.joyY=joyDY;
+  knob.style.left=(34+dx)+"px";knob.style.top=(34+dy)+"px";
+}
+
+// 캔버스 터치: 제목/마을/상점 클릭 지원
+c.addEventListener("touchend",e=>{
+  if(e.target!==c) return;
+  e.preventDefault();
+  const t=e.changedTouches[0],p=touchPoint(t);
+  mouse.x=p.x;mouse.y=p.y;
+  if(state==="title"){
+    mouse.down=true;
+    handleModeClick();
+  }
+  mouse.down=false;
+},{passive:false});
+c.addEventListener("pointerup",e=>{
+  if(e.pointerType!=="touch" || state!=="title") return;
+  const r=c.getBoundingClientRect();
+  mouse.x=(e.clientX-r.left)*W/r.width;
+  mouse.y=(e.clientY-r.top)*H/r.height;
+  mouse.down=true;
+  handleModeClick();
+  mouse.down=false;
+},{passive:false});
+
 
 const weapons=[
 {name:"낡은 단검",type:"dagger",grade:"일반",color:"#aeb5c0",base:13,crit:.12,speed:210,skills:["빠른 베기","단검 투척","급소 찌르기"],desc:"빠르고 안정적인 근접 무기"},
@@ -79,6 +204,51 @@ let dungeonThemes=[
  {name:"마그마 성채",floor:"#251713",wall:"#5b3428",accent:"#ff7545"},
  {name:"심연의 왕좌",floor:"#211325",wall:"#55305e",accent:"#ff3d81"}
 ];
+
+
+function chooseMode(mode){
+  controlMode=mode;
+  state="title";
+  modeSelected=true;
+  msg=mode==="mobile"?"모바일 모드 선택":"PC 모드 선택";
+  msgT=1.5;
+}
+function modeButton(x,y,w,h,label,sub,mode){
+  panel(x,y,w,h,controlMode===mode && modeSelected?"#263653":"#171d2b");
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff";
+  ctx.font="bold 26px Arial";
+  ctx.fillText(label,x+w/2,y+48);
+  ctx.fillStyle="#9eabc2";
+  ctx.font="14px Arial";
+  ctx.fillText(sub,x+w/2,y+78);
+}
+let modeSelected=false;
+
+function handleModeClick(){
+  if(!mouse.down || state!=="title") return false;
+
+  if(mouse.x>=210&&mouse.x<=590&&mouse.y>=315&&mouse.y<=475){
+    controlMode="pc";
+    modeSelected=true;
+    mouse.down=false;
+    return true;
+  }
+
+  if(mouse.x>=610&&mouse.x<=990&&mouse.y>=315&&mouse.y<=475){
+    controlMode="mobile";
+    modeSelected=true;
+    mouse.down=false;
+    return true;
+  }
+
+  if(modeSelected && mouse.x>=400&&mouse.x<=800&&mouse.y>=500&&mouse.y<=590){
+    mouse.down=false;
+    startGame();
+    return true;
+  }
+  return false;
+}
 
 function startGame(){
  state="game"; floor=1;room=0;gold=120; town=false; shop=false; finalBoss=false; roomCleared=false; awaitingNext=false;owned=[weapons[0]];currentWeapon=weapons[0];
@@ -260,13 +430,27 @@ function useDrop(d){
  else equip(d.weapon);
 }
 function update(dt){
+ touchUI.style.display=(controlMode==="mobile" && state!=="title")?"block":"none";
+
+ if(controlMode==="mobile" && state==="game" && touchState.attack && enemies.length && player){
+   let target=enemies.reduce((a,b)=>dist(player,a)<dist(player,b)?a:b);
+   mouse.x=target.x; mouse.y=target.y;
+ }
+ if(controlMode==="mobile" && state==="game" && player && touchState.active){
+   const sp=player.speed;
+   player.x+=touchState.joyX*sp*dt;
+   player.y+=touchState.joyY*sp*dt;
+   player.x=clamp(player.x,35,W-35);
+   player.y=clamp(player.y,70,H-80);
+ }
+
  if(state==="town"){handleTownClick();return;}
  if(state!=="game")return;
  if(inv||paused)return;
  player.inv=Math.max(0,player.inv-dt);attackCD=Math.max(0,attackCD-dt);
  for(let i=0;i<3;i++)cool[i]=Math.max(0,cool[i]-dt);
  player.mp=Math.min(player.maxmp,player.mp+8*dt);
- let dx=(keys.d?1:0)-(keys.a?1:0),dy=(keys.s?1:0)-(keys.w?1:0);
+ let dx=(keys.d?1:0)-(keys.a?1:0),dy=(keys.s?1:0)-(keys.w?1:0); if(joyId!==null){dx=joyDX;dy=joyDY;}
  if(dx||dy){let l=Math.hypot(dx,dy);player.x+=dx/l*player.speed*dt;player.y+=dy/l*player.speed*dt}
  player.x=clamp(player.x,28,1172);player.y=clamp(player.y,78,650);
  if(mouse.down)attack();
@@ -488,13 +672,26 @@ function drawShop(){
 }
 
 function drawTitle(){
- ctx.fillStyle="rgba(4,5,10,.9)";ctx.fillRect(0,0,W,H);
- ctx.textAlign="center";ctx.fillStyle="#fff";ctx.font="bold 64px Arial";ctx.fillText("DUNGEON RELIC",600,220);
- ctx.fillStyle="#7e8cff";ctx.font="22px Arial";ctx.fillText("무기를 얻고 · 스킬을 바꾸고 · 던전을 정복하라",600,265);
- ctx.fillStyle="#d7dbea";ctx.font="18px Arial";ctx.fillText("5등급 × 4종 = 총 20개 무기",600,315);
- ctx.fillStyle="#9da6bb";ctx.font="15px Arial";ctx.fillText("마우스 공격 · 1/2/3 스킬 · WASD 이동 · I 인벤토리",600,360);
- ctx.fillStyle="#fff";ctx.font="bold 22px Arial";ctx.fillText("ENTER를 눌러 시작",600,440);
- ctx.fillStyle="#7f8aa3";ctx.font="14px Arial";ctx.fillText("상점 재입고 · 무기 · 방어구 · 4개 던전 · 보스",600,475);
+  ctx.fillStyle="#090b12";ctx.fillRect(0,0,W,H);
+  ctx.textAlign="center";
+  ctx.fillStyle="#f2d28b";ctx.font="bold 58px Arial";
+  ctx.fillText("DUNGEON RELIC",600,145);
+  ctx.fillStyle="#aab3c8";ctx.font="18px Arial";
+  ctx.fillText("플레이 모드를 선택하세요",600,205);
+
+  modeButton(210,315,380,160,"🖥 PC 모드","WASD · 마우스 · 1/2/3 스킬","pc");
+  modeButton(610,315,380,160,"📱 모바일 모드","가상 조이스틱 · 터치 버튼","mobile");
+
+  if(modeSelected){
+    ctx.fillStyle="#69e2a1";ctx.font="bold 18px Arial";
+    ctx.fillText(controlMode==="pc"?"PC 모드 선택됨":"모바일 모드 선택됨",600,495);
+    panel(400,510,400,70,"#263653");
+    ctx.fillStyle="#fff";ctx.font="bold 21px Arial";
+    ctx.fillText("▶ 게임 시작",600,554);
+  }else{
+    ctx.fillStyle="#77829a";ctx.font="15px Arial";
+    ctx.fillText("PC 또는 모바일 모드를 먼저 선택하세요",600,545);
+  }
 }
 function overlay(title,sub){
  ctx.fillStyle="rgba(3,4,8,.82)";ctx.fillRect(0,0,W,H);ctx.textAlign="center";
