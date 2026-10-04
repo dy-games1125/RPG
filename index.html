@@ -302,6 +302,8 @@ function spawnEnemy(){
  const types=["슬라임","고블린","해골","오크","마법사","박쥐","기사","골렘"];
  let t=types[Math.floor(Math.random()*types.length)];
  let mult=1+floor*.35+room*.09;
+ // 적 체력은 ROOM이 올라갈수록 공격력보다도 조금 더 가파르게 증가
+ let hpMult=1+floor*.50+room*.12;
  let atkMult=1+floor*.45+room*.11;
  const stats={
   "슬라임":[26,5,45,20],
@@ -320,8 +322,8 @@ function spawnEnemy(){
    x:760+Math.random()*320,
    y:100+Math.random()*520,
    r,
-   hp:data[0]*mult,
-   maxhp:data[0]*mult,
+   hp:data[0]*hpMult,
+   maxhp:data[0]*hpMult,
    atk:data[1]*atkMult,
    speed:data[2],
    xp:data[3]*mult,
