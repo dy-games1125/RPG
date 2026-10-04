@@ -25,7 +25,7 @@ canvas{background:#10131d;border:2px solid #31384b;box-shadow:0 0 40px #000;max-
 canvas{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;position:relative;z-index:1}\n@media (pointer:coarse){.touchBtn{touch-action:none!important}.touchBtn:active{transform:scale(.94)}}\n</style>
 </head>
 <body>
-<div id="wrap"><canvas id="game" width="1200" height="720"></canvas><div id="help">WASD 이동 · 마우스 공격 · 1/2/3 스킬 · I 인벤토리 · B 상점 · H 마을 · → 다음 방</div></div><div id="touchUI">
+<div id="wrap"><canvas id="game" width="1200" height="720"></canvas><div id="help">WASD 이동 · 마우스 공격 · 1/2/3 스킬 · G 아이템 줍기 · I 인벤토리 · B 상점 · H 마을 · → 다음 방</div></div><div id="touchUI">
   <div id="joy" class="touchBtn">이동<div id="joyKnob"></div></div>
   <div id="attackBtn" class="touchBtn">공격</div>
   <div id="skill1" class="touchBtn skillBtn">1</div>
@@ -42,9 +42,21 @@ const keys={},mouse={x:600,y:360,down:false};
 let controlMode="pc";
 addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(["1","2","3"].includes(e.key)) skill(+e.key);if(e.key.toLowerCase()==="i"){inv=!inv;shop=false}
 if(e.key.toLowerCase()==="b"){shop=!shop;inv=false}
-if(e.key==="Escape"){inv=false;shop=false}if(e.key==="Enter"&&state==="title")startGame();
-if(e.key==="Enter"&&state==="town"){town=false;state="game";nextRoom();}
+if(e.key==="Escape"){inv=false;shop=false}
+if(e.key.toLowerCase()==="g" && state==="game" && player && !inv && !shop) pickupNearbyDrop();
+if(e.key==="Enter"&&state==="title")startGame();
+if(e.key==="Enter"&&state==="town"){
+  town=false;
+  state="game";
+  if(resumeRoom && room>0){
+    resumeRoom=false;
+    spawnCurrentRoom();
+  }else{
+    nextRoom();
+  }
+}
 if(e.key.toLowerCase()==="h" && state==="game"){
+  resumeRoom=true;
   town=true; state="town"; enemies=[];bullets=[];effects=[];
   roomCleared=false;awaitingNext=false; player.hp=player.maxhp;player.mp=player.maxmp;
   msg="마을로 복귀했습니다";msgT=1.5;
@@ -93,7 +105,7 @@ pressAction(document.getElementById("skill1"),()=>{if(state==="game")skill(1)});
 pressAction(document.getElementById("skill2"),()=>{if(state==="game")skill(2)});
 pressAction(document.getElementById("skill3"),()=>{if(state==="game")skill(3)});
 pressAction(document.getElementById("townBtn"),()=>{
-  if(state==="game"){town=true;state="town";enemies=[];bullets=[];effects=[];roomCleared=false;awaitingNext=false;if(player){player.hp=player.maxhp;player.mp=player.maxmp;}}
+  if(state==="game"){resumeRoom=true;town=true;state="town";enemies=[];bullets=[];effects=[];roomCleared=false;awaitingNext=false;if(player){player.hp=player.maxhp;player.mp=player.maxmp;}}
 });
 pressAction(document.getElementById("nextBtn"),()=>{
   if(state==="game"&&roomCleared&&!inv&&!shop){
@@ -181,16 +193,16 @@ const weapons=[
 {name:"천공의 활",type:"bow",grade:"전설",color:"#ff9d35",base:47,crit:.32,speed:120,skills:["천공 관통","별똥별 사격","천공의 비"],desc:"하늘을 가르는 전설의 활"},
 {name:"태양의 지팡이",type:"staff",grade:"전설",color:"#ff9d35",base:49,crit:.13,speed:210,skills:["태양탄","태양 폭발","태양의 심판"],desc:"강력한 화염 마법 지팡이"},
 
-{name:"죽음의 쌍낫",type:"scythe",grade:"신화",color:"#ff3d81",base:66,crit:.35,speed:105,skills:["영혼 수확","사신의 춤","죽음의 표식"],desc:"처치할수록 강해지는 신화 무기"},
-{name:"세계수의 대검",type:"greatsword",grade:"신화",color:"#ff3d81",base:78,crit:.18,speed:520,skills:["대지 절단","세계수 강림","멸망의 참격"],desc:"거대한 힘을 지닌 신화 대검"},
-{name:"신궁 아르테미스",type:"bow",grade:"신화",color:"#ff3d81",base:70,crit:.42,speed:95,skills:["신속 화살","달빛 폭우","신궁의 일격"],desc:"최고의 치명타를 자랑하는 신화 활"},
-{name:"창세의 마도서",type:"staff",grade:"신화",color:"#ff3d81",base:74,crit:.18,speed:185,skills:["창세의 탄환","차원 폭발","메테오 아포칼립스"],desc:"던전 최강의 마법서"}
+{name:"죽음의 쌍낫",type:"scythe",grade:"신화",color:"#ff3d81",base:110,crit:.40,speed:105,skills:["영혼 수확","사신의 춤","죽음의 표식"],desc:"압도적인 공격력과 치명타를 가진 신화 무기"},
+{name:"세계수의 대검",type:"greatsword",grade:"신화",color:"#ff3d81",base:140,crit:.22,speed:520,skills:["대지 절단","세계수 강림","멸망의 참격"],desc:"압도적인 한 방을 자랑하는 신화 대검"},
+{name:"신궁 아르테미스",type:"bow",grade:"신화",color:"#ff3d81",base:125,crit:.48,speed:95,skills:["신속 화살","달빛 폭우","신궁의 일격"],desc:"최고의 치명타와 공격력을 자랑하는 신화 활"},
+{name:"창세의 마도서",type:"staff",grade:"신화",color:"#ff3d81",base:130,crit:.22,speed:185,skills:["창세의 탄환","차원 폭발","메테오 아포칼립스"],desc:"던전 최강급 공격력을 가진 신화 마법서"}
 ];
 const gradeRank={"일반":1,"희귀":2,"영웅":3,"전설":4,"신화":5};
 let state="title",inv=false,paused=false,last=0,shake=0,msg="",msgT=0;
 let player,enemies=[],bullets=[],effects=[],drops=[],texts=[],floor=1,room=0,totalRooms=600,gold=80;
 let currentWeapon=weapons[0],owned=[weapons[0]],cool=[0,0,0],attackCD=0,spawnTimer=0;
-let shop=false, town=false, finalBoss=false, roomCleared=false, awaitingNext=false, shopTab="weapon", shopWeapons=[], shopArmors=[], stockCost=25, armor={name:"낡은 가죽 갑옷",grade:"일반",def:2,hp:0,color:"#aeb5c0",price:0};
+let shop=false, town=false, finalBoss=false, roomCleared=false, awaitingNext=false, resumeRoom=false, shopTab="weapon", shopWeapons=[], shopArmors=[], stockCost=25, armor={name:"낡은 가죽 갑옷",grade:"일반",def:2,hp:0,color:"#aeb5c0",price:0};
 let armorList=[
  {name:"낡은 가죽 갑옷",grade:"일반",def:2,hp:0,color:"#aeb5c0",price:0},
  {name:"강철 갑옷",grade:"희귀",def:7,hp:25,color:"#4fa8ff",price:180},
@@ -251,19 +263,28 @@ function handleModeClick(){
 }
 
 function startGame(){
- state="game"; floor=1;room=0;gold=120; town=false; shop=false; finalBoss=false; roomCleared=false; awaitingNext=false;owned=[weapons[0]];currentWeapon=weapons[0];
+ state="game"; floor=1;room=0;gold=120; town=false; resumeRoom=false; shop=false; finalBoss=false; roomCleared=false; awaitingNext=false;owned=[weapons[0]];currentWeapon=weapons[0];
  player={x:300,y:360,r:18,hp:120,maxhp:120,mp:100,maxmp:100,lvl:1,xp:0,next:100,atk:4,def:3,speed:210,inv:0,coins:0};
  refreshStock(true);
  enemies=[];bullets=[];effects=[];drops=[];texts=[];nextRoom();
 }
+function spawnCurrentRoom(){
+  enemies=[];bullets=[];effects=[];drops=[];spawnTimer=0;
+  roomCleared=false;awaitingNext=false;finalBoss=false;
+  const count=Math.max(1,Math.min(12,3+floor*2+room));
+  for(let i=0;i<count;i++) spawnEnemy();
+  if(enemies.length===0) spawnEnemy();
+  msg=`${floor}층 · ${room}/${totalRooms} 방`;msgT=1.5;
+}
 function nextRoom(){
+ resumeRoom=false;
  room++;
  enemies=[];bullets=[];effects=[];drops=[];spawnTimer=0;
  roomCleared=false; awaitingNext=false;
 
  if(room>totalRooms){
    if(floor<4){
-     floor++; room=0; town=true; state="town";
+     floor++; room=0; town=true; resumeRoom=false; state="town";
      player.hp=player.maxhp; player.mp=player.maxmp;
      msg=`${floor}층 준비 완료! 마을에서 장비를 정비하세요`;msgT=2;
      return;
@@ -272,19 +293,41 @@ function nextRoom(){
    }
  }
  finalBoss=false;
- const count=Math.min(12,3+floor*2+room);
+ const count=Math.max(1,Math.min(12,3+floor*2+room));
  for(let i=0;i<count;i++) spawnEnemy();
+ if(enemies.length===0) spawnEnemy();
  msg=`${floor}층 · ${room}/${totalRooms} 방`;msgT=1.5;
 }
 function spawnEnemy(){
  const types=["슬라임","고블린","해골","오크","마법사","박쥐","기사","골렘"];
- let t=types[Math.floor(Math.random()*types.length)], mult=1+floor*.35+room*.09;
- let data={
-  "슬라임":[26,5,45,20], "고블린":[38,8,65,28], "해골":[48,11,70,34],
-  "오크":[82,16,48,55], "마법사":[42,7,42,48]
- }[t];
- enemies.push({type:t,x:760+Math.random()*320,y:100+Math.random()*520,r:(t==="오크"||t==="기사")?24:(t==="골렘"?30:18),
- hp:data[0]*mult,maxhp:data[0]*mult,atk:data[1]*mult,speed:data[2],xp:data[3]*mult,hit:0,shoot:1+Math.random()*2});
+ let t=types[Math.floor(Math.random()*types.length)];
+ let mult=1+floor*.35+room*.09;
+ let atkMult=1+floor*.45+room*.11;
+ const stats={
+  "슬라임":[26,5,45,20],
+  "고블린":[38,8,65,28],
+  "해골":[48,11,70,34],
+  "오크":[82,16,48,55],
+  "마법사":[42,7,42,48],
+  "박쥐":[30,6,110,25],
+  "기사":[105,20,38,80],
+  "골렘":[160,24,28,110]
+ };
+ const data=stats[t];
+ const r=(t==="오크"||t==="기사")?24:(t==="골렘"?30:18);
+ enemies.push({
+   type:t,
+   x:760+Math.random()*320,
+   y:100+Math.random()*520,
+   r,
+   hp:data[0]*mult,
+   maxhp:data[0]*mult,
+   atk:data[1]*atkMult,
+   speed:data[2],
+   xp:data[3]*mult,
+   hit:0,
+   shoot:1+Math.random()*2
+ });
 }
 function spawnBoss(){
  finalBoss=true;
@@ -311,7 +354,7 @@ function hitEnemy(e,dmg,crit=false){
   // 마지막 보스를 처치하면 게임을 멈추지 않고 클리어 화면으로 이동
   if(finalBoss && e.type==="던전 군주"){
     enemies=[]; roomCleared=true; awaitingNext=true;
-    msg="던전 군주 처치! 아이템을 모두 챙긴 뒤 → 를 누르세요";
+    msg="던전 군주 처치! 아이템을 줍고 → 를 누르세요";
     msgT=5;
     return;
   }
@@ -384,11 +427,12 @@ function skill(n){
 function refreshStock(first=false){
  // 일반 재입고는 비용을 먼저 확인한다.
  // 골드가 부족하면 진열 상품도 절대 바뀌지 않는다.
- if(!first && gold<stockCost){
-   msg=`재입고 비용은 ◆ ${stockCost}입니다`;
+ if(!first && (Number(gold) < 25 || !Number.isFinite(Number(gold)))){
+   msg=`골드가 부족합니다. 재입고에는 ◆ 25가 필요합니다`;
    msgT=1.3;
    return false;
  }
+ if(!first) stockCost=25;
  const pool=[...weapons];
  // 가중치: 높은 등급일수록 조금 더 희귀
  function pick(list,n){
@@ -396,7 +440,7 @@ function refreshStock(first=false){
    while(out.length<n && list.length){
      let weights=list.map(w=>{
      const r=gradeRank[w.grade];
-     return r===1?55:r===2?28:r===3?10:r===4?2:0.35;
+     return r===1?55:r===2?28:r===3?10:r===4?2:0.05;
    });
      let total=weights.reduce((a,b)=>a+b,0), r=Math.random()*total, idx=0;
      for(let i=0;i<weights.length;i++){r-=weights[i];if(r<=0){idx=i;break}}
@@ -416,9 +460,24 @@ function refreshStock(first=false){
 }
 function buyWeapon(w){
  const price=w.base*gradeRank[w.grade]*6;
- if(owned.includes(w)){msg="이미 보유한 무기야!";msgT=1;return}
- if(gold<price){msg="골드가 부족해!";msgT=1;return}
- gold-=price;owned.push(w);msg=`${w.name} 구매!`;msgT=1.5;
+ if(owned.includes(w)){
+   currentWeapon=w;
+   msg=`${w.name} 장착!`;
+   msgT=1.2;
+   return;
+ }
+ if(gold<price){
+   msg="골드가 부족해!";
+   msgT=1;
+   return;
+ }
+ gold-=price;
+ owned.push(w);
+ currentWeapon=w;
+ cool=[0,0,0];
+ attackCD=0;
+ msg=`${w.name} 구매 및 장착!`;
+ msgT=1.5;
 }
 function buyArmor(a){
  if(armor===a){msg="이미 장착 중!";msgT=1;return}
@@ -432,6 +491,32 @@ function buyPotion(){
  msg="회복 물약 사용!";msgT=1;
 }
 function openShop(){shop=true;inv=false;paused=false}
+function pickupNearbyDrop(){
+  if(!player || !drops.length) return false;
+
+  let target=null;
+  let best=48;
+
+  for(const d of drops){
+    if(d.dead) continue;
+    const dd=dist(player,d);
+    if(dd<=best){
+      best=dd;
+      target=d;
+    }
+  }
+
+  if(!target){
+    msg="아이템 가까이에서 G를 눌러주세요";
+    msgT=0.9;
+    return false;
+  }
+
+  useDrop(target);
+  target.dead=true;
+  return true;
+}
+
 function useDrop(d){
  if(d.type==="potion"){player.hp=Math.min(player.maxhp,player.hp+45);player.mp=Math.min(player.maxmp,player.mp+25);msg="회복 물약 사용";msgT=1}
  else equip(d.weapon);
@@ -480,14 +565,13 @@ function update(dt){
  bullets.forEach(b=>{if(b.type==="enemy"&&dist(b,player)<player.r+7&&player.inv<=0){player.hp-=Math.max(1,b.dmg-player.def*.35-armor.def*.35);player.inv=.3;b.life=0;shake=7}});
  bullets=bullets.filter(b=>b.life>0);
  enemies=enemies.filter(e=>e.hp>0);
- drops.forEach(d=>{if(dist(player,d)<34){useDrop(d);d.dead=true}});
  drops=drops.filter(d=>!d.dead);
  texts.forEach(t=>t.t-=dt);texts=texts.filter(t=>t.t>0);
  effects.forEach(e=>e.t-=dt);effects=effects.filter(e=>e.t>0);
  if(player.hp<=0){state="gameover";return}
  if(enemies.length===0 && state==="game" && !roomCleared && !finalBoss){
    roomCleared=true; awaitingNext=true;
-   msg=room>=totalRooms ? "던전 클리어! 아이템을 줍고 → 를 눌러 다음 층으로" : "방 클리어! 아이템을 모두 챙긴 뒤 → 를 누르세요";
+   msg=room>=totalRooms ? "던전 클리어! 필요한 아이템을 G로 줍고 → 를 눌러 다음 층으로" : "방 클리어! 아이템을 줍고 → 를 누르세요";
    msgT=3;
  }
 }
@@ -547,9 +631,30 @@ function drawBullets(){
 }
 function drawDrops(){
  drops.forEach(d=>{
-  ctx.save();ctx.translate(d.x,d.y);ctx.rotate(performance.now()/600);
-  ctx.fillStyle=d.type==="potion"?"#55e09a":d.weapon.color;ctx.fillRect(-10,-10,20,20);ctx.restore();
-  if(d.type==="weapon"){ctx.fillStyle=d.weapon.color;ctx.font="12px Arial";ctx.textAlign="center";ctx.fillText(d.weapon.grade, d.x,d.y-17)}
+  if(d.dead) return;
+
+  const near=player && dist(player,d)<=48;
+
+  ctx.save();
+  ctx.translate(d.x,d.y);
+  ctx.rotate(performance.now()/600);
+  ctx.fillStyle=d.type==="potion"?"#55e09a":d.weapon.color;
+  ctx.fillRect(-10,-10,20,20);
+  ctx.restore();
+
+  if(d.type==="weapon"){
+    ctx.fillStyle=d.weapon.color;
+    ctx.font="12px Arial";
+    ctx.textAlign="center";
+    ctx.fillText(d.weapon.grade, d.x,d.y-17);
+  }
+
+  if(near){
+    ctx.fillStyle="#fff3a1";
+    ctx.font="bold 13px Arial";
+    ctx.textAlign="center";
+    ctx.fillText("G 줍기",d.x,d.y+32);
+  }
  });
 }
 function drawEffects(){
@@ -615,7 +720,16 @@ function handleTownClick(){
  }
  // 던전 입구
  if(mouse.x>=780&&mouse.x<=1030&&mouse.y>=225&&mouse.y<=445){
-   town=false;state="game";nextRoom();mouse.down=false;return;
+   town=false;
+   state="game";
+   if(room>0){
+     resumeRoom=false;
+     spawnCurrentRoom();
+   }else{
+     nextRoom();
+   }
+   mouse.down=false;
+   return;
  }
 }
 function drawTown(){
@@ -635,7 +749,9 @@ function drawShop(){
  panel(80,55,1040,610,"#101521");
  ctx.textAlign="left";ctx.fillStyle="#fff";ctx.font="bold 30px Arial";ctx.fillText("✦ 모험가 상점",115,100);
  ctx.fillStyle="#f1c75b";ctx.font="bold 18px Arial";ctx.fillText("◆ "+gold,970,100);
- ctx.fillStyle="#fff";ctx.font="bold 13px Arial";ctx.fillText(`↻ 재입고 ◆ ${stockCost}`,820,145);
+ ctx.fillStyle=Number(gold)>=25?"#fff":"#777f91";
+ ctx.font="bold 13px Arial";
+ ctx.fillText(`↻ 재입고 ◆ 25`,820,145);
  // tabs
  const tabs=[["weapon","무기"],["armor","방어구"],["potion","물약"]];
  tabs.forEach((t,i)=>{let x=115+i*145;panel(x,125,130,42,shopTab===t[0]?"#263452":"#171d2a");ctx.fillStyle="#fff";ctx.font="bold 15px Arial";ctx.fillText(t[1],x+43,151)});
@@ -666,7 +782,13 @@ function drawShop(){
  if(mouse.down){
    // 재입고 버튼
    if(mouse.x>800&&mouse.x<1110&&mouse.y>120&&mouse.y<170){
-     refreshStock(false); mouse.down=false;
+     if(Number(gold)>=25){
+       refreshStock(false);
+     }else{
+       msg=`골드가 부족합니다. ◆ 25 필요`;
+       msgT=1.3;
+     }
+     mouse.down=false;
    }
    // tabs
    tabs.forEach((t,i)=>{let x=115+i*145;if(mouse.x>x&&mouse.x<x+130&&mouse.y>125&&mouse.y<167){shopTab=t[0];mouse.down=false}});
