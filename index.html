@@ -382,6 +382,13 @@ function skill(n){
 
 
 function refreshStock(first=false){
+ // 일반 재입고는 비용을 먼저 확인한다.
+ // 골드가 부족하면 진열 상품도 절대 바뀌지 않는다.
+ if(!first && gold<stockCost){
+   msg=`재입고 비용은 ◆ ${stockCost}입니다`;
+   msgT=1.3;
+   return false;
+ }
  const pool=[...weapons];
  // 가중치: 높은 등급일수록 조금 더 희귀
  function pick(list,n){
@@ -401,9 +408,9 @@ function refreshStock(first=false){
  const ap=[...armorList.slice(1)];
  shopArmors=pick(ap,Math.min(4,ap.length));
  if(!first){
-   if(gold<stockCost){msg=`재입고 비용은 ◆ ${stockCost}입니다`;msgT=1.3;return false}
    gold-=stockCost;
-   msg="상점 재입고 완료!";msgT=1.5;
+   msg="상점 재입고 완료!";
+   msgT=1.5;
  }
  return true;
 }
