@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Dungeon Relic - 던전 RPG</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#090b12;color:#eee;font-family:Arial,"Malgun Gothic",sans-serif;overflow:hidden}
+#wrap{position:relative;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center}
+canvas{background:#10131d;border:2px solid #31384b;box-shadow:0 0 40px #000;max-width:100vw;max-height:100vh}
+#help{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);font-size:13px;color:#9ea7bd;pointer-events:none}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="game" width="1200" height="720"></canvas><div id="help">WASD 이동 · 마우스 공격 · 1/2/3 스킬 · I 인벤토리 · B 상점 · H 마을 · → 다음 방</div></div>
+<script>
+const c=document.getElementById("game"),ctx=c.getContext("2d");
+const W=c.width,H=c.height;
+const keys={},mouse={x:600,y:360,down:false};
+addEventListener("keydown",e=>{keys[e.key.toLowerCase()]=true;if(["1","2","3"].includes(e.key)) skill(+e.key);if(e.key.toLowerCase()==="i"){inv=!inv;shop=false}
+if(e.key.toLowerCase()==="b"){shop=!shop;inv=false}
+if(e.key==="Escape"){inv=false;shop=false}if(e.key==="Enter"&&state==="title")startGame();
+if(e.key==="Enter"&&state==="town"){town=false;state="game";nextRoom();}
+if(e.key.toLowerCase()==="h" && state==="game"){
+  town=true; state="town"; enemies=[];bullets=[];effects=[];
+  roomCleared=false;awaitingNext=false; player.hp=player.maxhp;player.mp=player.maxmp;
+  msg="마을로 복귀했습니다";msgT=1.5;
+}
+if(e.key==="ArrowRight" && state==="game" && roomCleared && !inv && !shop){
+  if(finalBoss){finalBoss=false;roomCleared=false;awaitingNext=false;state="victory";}
+  else nextRoom();
+}});
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+c.addEventListener("mousemove",e=>{const r=c.getBoundingClientRect();mouse.x=(e.clientX-r.left)*W/r.width;mouse.y=(e.clientY-r.top)*H/r.height});
+c.addEventListener("mousedown",()=>mouse.down=true);addEventListener("mouseup",()=>mouse.down=false);
+
+const weapons=[
+{name:"낡은 단검",type:"dagger",grade:"일반",color:"#aeb5c0",base:13,crit:.12,speed:210,skills:["빠른 베기","단검 투척","급소 찌르기"],desc:"빠르고 안정적인 근접 무기"},
+{name:"철검",type:"sword",grade:"일반",color:"#c5ccd8",base:16,crit:.08,speed:250,skills:["검풍","돌진 베기","연속 참격"],desc:"균형 잡힌 기본 검"},
+{name:"사냥꾼의 활",type:"bow",grade:"일반",color:"#b8a078",base:14,crit:.13,speed:190,skills:["정밀 사격","산탄 화살","뒤로 물러서기"],desc:"빠른 원거리 공격"},
+{name:"초보자 지팡이",type:"staff",grade:"일반",color:"#c6a3ff",base:12,crit:.06,speed:270,skills:["마력탄","마나 폭발","회복 마법"],desc:"마법 입문용 지팡이"},
+
+{name:"서리 단검",type:"dagger",grade:"희귀",color:"#4fa8ff",base:21,crit:.18,speed:185,skills:["빙결 연격","얼음 돌진","서리 처형"],desc:"적을 느리게 만드는 단검"},
+{name:"화염 장검",type:"sword",grade:"희귀",color:"#4fa8ff",base:25,crit:.10,speed:260,skills:["화염 베기","불꽃 돌진","폭염 참격"],desc:"공격에 화염을 두른 검"},
+{name:"천둥 활",type:"bow",grade:"희귀",color:"#4fa8ff",base:23,crit:.20,speed:165,skills:["번개 화살","연쇄 사격","천둥비"],desc:"번개처럼 빠른 활"},
+{name:"수정 마법서",type:"staff",grade:"희귀",color:"#4fa8ff",base:22,crit:.08,speed:250,skills:["수정탄","마력 폭발","보호막"],desc:"마력을 증폭하는 마법서"},
+
+{name:"그림자 쌍검",type:"dagger",grade:"영웅",color:"#b86cff",base:30,crit:.24,speed:145,skills:["그림자 연무","암살 돌진","백어택 폭풍"],desc:"치명타에 특화된 쌍검"},
+{name:"빙결 대검",type:"greatsword",grade:"영웅",color:"#b86cff",base:38,crit:.11,speed:440,skills:["빙결 베기","얼음 파동","빙산 참격"],desc:"넓은 범위와 둔화를 가진 대검"},
+{name:"유령 장궁",type:"bow",grade:"영웅",color:"#b86cff",base:34,crit:.27,speed:145,skills:["유령 화살","관통 폭우","환영 사격"],desc:"화살이 적을 관통하는 장궁"},
+{name:"별빛 지팡이",type:"staff",grade:"영웅",color:"#b86cff",base:32,crit:.10,speed:230,skills:["별빛 탄환","유성 폭발","별의 보호"],desc:"강력한 광역 마법 지팡이"},
+
+{name:"용암 쌍검",type:"dagger",grade:"전설",color:"#ff9d35",base:42,crit:.28,speed:125,skills:["용암 난무","화염 암살","지옥의 칼날"],desc:"극도로 빠른 화염 쌍검"},
+{name:"용의 대검",type:"greatsword",grade:"전설",color:"#ff9d35",base:55,crit:.14,speed:470,skills:["용염 베기","용의 포효","화룡 폭발"],desc:"용의 힘을 담은 대검"},
+{name:"천공의 활",type:"bow",grade:"전설",color:"#ff9d35",base:47,crit:.32,speed:120,skills:["천공 관통","별똥별 사격","천공의 비"],desc:"하늘을 가르는 전설의 활"},
+{name:"태양의 지팡이",type:"staff",grade:"전설",color:"#ff9d35",base:49,crit:.13,speed:210,skills:["태양탄","태양 폭발","태양의 심판"],desc:"강력한 화염 마법 지팡이"},
+
+{name:"죽음의 쌍낫",type:"scythe",grade:"신화",color:"#ff3d81",base:66,crit:.35,speed:105,skills:["영혼 수확","사신의 춤","죽음의 표식"],desc:"처치할수록 강해지는 신화 무기"},
+{name:"세계수의 대검",type:"greatsword",grade:"신화",color:"#ff3d81",base:78,crit:.18,speed:520,skills:["대지 절단","세계수 강림","멸망의 참격"],desc:"거대한 힘을 지닌 신화 대검"},
+{name:"신궁 아르테미스",type:"bow",grade:"신화",color:"#ff3d81",base:70,crit:.42,speed:95,skills:["신속 화살","달빛 폭우","신궁의 일격"],desc:"최고의 치명타를 자랑하는 신화 활"},
+{name:"창세의 마도서",type:"staff",grade:"신화",color:"#ff3d81",base:74,crit:.18,speed:185,skills:["창세의 탄환","차원 폭발","메테오 아포칼립스"],desc:"던전 최강의 마법서"}
+];
+const gradeRank={"일반":1,"희귀":2,"영웅":3,"전설":4,"신화":5};
+let state="title",inv=false,paused=false,last=0,shake=0,msg="",msgT=0;
+let player,enemies=[],bullets=[],effects=[],drops=[],texts=[],floor=1,room=0,totalRooms=600,gold=80;
+let currentWeapon=weapons[0],owned=[weapons[0]],cool=[0,0,0],attackCD=0,spawnTimer=0;
+let shop=false, town=false, finalBoss=false, roomCleared=false, awaitingNext=false, shopTab="weapon", shopWeapons=[], shopArmors=[], stockCost=25, armor={name:"낡은 가죽 갑옷",grade:"일반",def:2,hp:0,color:"#aeb5c0",price:0};
+let armorList=[
+ {name:"낡은 가죽 갑옷",grade:"일반",def:2,hp:0,color:"#aeb5c0",price:0},
+ {name:"강철 갑옷",grade:"희귀",def:7,hp:25,color:"#4fa8ff",price:180},
+ {name:"마법사의 로브",grade:"영웅",def:10,hp:45,color:"#b86cff",price:360},
+ {name:"용비늘 갑옷",grade:"전설",def:16,hp:80,color:"#ff9d35",price:650},
+ {name:"심연의 갑주",grade:"신화",def:24,hp:130,color:"#ff3d81",price:1100}
+];
+let dungeonThemes=[
+ {name:"잊힌 지하묘지",floor:"#151a29",wall:"#31394c",accent:"#f2b84b"},
+ {name:"얼어붙은 동굴",floor:"#10202b",wall:"#31505e",accent:"#8de8ff"},
+ {name:"마그마 성채",floor:"#251713",wall:"#5b3428",accent:"#ff7545"},
+ {name:"심연의 왕좌",floor:"#211325",wall:"#55305e",accent:"#ff3d81"}
+];
+
+function startGame(){
+ state="game"; floor=1;room=0;gold=120; town=false; shop=false; finalBoss=false; roomCleared=false; awaitingNext=false;owned=[weapons[0]];currentWeapon=weapons[0];
+ player={x:300,y:360,r:18,hp:120,maxhp:120,mp:100,maxmp:100,lvl:1,xp:0,next:100,atk:4,def:3,speed:210,inv:0,coins:0};
+ refreshStock(true);
+ enemies=[];bullets=[];effects=[];drops=[];texts=[];nextRoom();
+}
+function nextRoom(){
+ room++;
+ enemies=[];bullets=[];effects=[];drops=[];spawnTimer=0;
+ roomCleared=false; awaitingNext=false;
+
+ if(room>totalRooms){
+   if(floor<4){
+     floor++; room=0; town=true; state="town";
+     player.hp=player.maxhp; player.mp=player.maxmp;
+     msg=`${floor}층 준비 완료! 마을에서 장비를 정비하세요`;msgT=2;
+     return;
+   }else{
+     finalBoss=true; state="game"; spawnBoss(); return;
+   }
+ }
+ finalBoss=false;
+ const count=Math.min(12,3+floor*2+room);
+ for(let i=0;i<count;i++) spawnEnemy();
+ msg=`${floor}층 · ${room}/${totalRooms} 방`;msgT=1.5;
+}
+function spawnEnemy(){
+ const types=["슬라임","고블린","해골","오크","마법사","박쥐","기사","골렘"];
+ let t=types[Math.floor(Math.random()*types.length)], mult=1+floor*.35+room*.09;
+ let data={
+  "슬라임":[26,5,45,20], "고블린":[38,8,65,28], "해골":[48,11,70,34],
+  "오크":[82,16,48,55], "마법사":[42,7,42,48]
+ }[t];
+ enemies.push({type:t,x:760+Math.random()*320,y:100+Math.random()*520,r:(t==="오크"||t==="기사")?24:(t==="골렘"?30:18),
+ hp:data[0]*mult,maxhp:data[0]*mult,atk:data[1]*mult,speed:data[2],xp:data[3]*mult,hit:0,shoot:1+Math.random()*2});
+}
+function spawnBoss(){
+ finalBoss=true;
+ enemies=[{type:"던전 군주",x:880,y:360,r:55,hp:900+floor*300,maxhp:900+floor*300,atk:30+floor*5,speed:55,xp:500,hit:0,shoot:1}];
+ msg="BOSS · 던전 군주";msgT=3;
+}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function clamp(v,a,b){return Math.max(a,Math.min(b,v))}
+function gainXP(x){
+ player.xp+=x; texts.push({x:player.x,y:player.y-30,s:"+"+Math.floor(x)+" XP",c:"#7ee7ff",t:1});
+ while(player.xp>=player.next){
+  player.xp-=player.next;player.lvl++;player.next=Math.floor(player.next*1.35);
+  player.maxhp+=18;player.hp=player.maxhp;player.maxmp+=10;player.mp=player.maxmp;player.atk+=4;player.def+=2;
+  msg=`LEVEL UP! Lv.${player.lvl}`;msgT=2;
+ }
+}
+function hitEnemy(e,dmg,crit=false){
+ e.hp-=dmg;e.hit=.12;shake=Math.max(shake,5);
+ texts.push({x:e.x+(Math.random()-.5)*20,y:e.y-28,s:(crit?"CRIT ":"")+Math.floor(dmg),c:crit?"#ffe45c":"#fff",t:.8});
+ if(e.hp<=0){
+  gainXP(e.xp);
+  gold+=Math.floor(10+e.xp*.3);
+
+  // 마지막 보스를 처치하면 게임을 멈추지 않고 클리어 화면으로 이동
+  if(finalBoss && e.type==="던전 군주"){
+    enemies=[]; roomCleared=true; awaitingNext=true;
+    msg="던전 군주 처치! 아이템을 모두 챙긴 뒤 → 를 누르세요";
+    msgT=5;
+    return;
+  }
+
+  if(Math.random()<.28) dropWeapon(e.x,e.y);
+  else if(Math.random()<.3)drops.push({x:e.x,y:e.y,type:"potion"});
+ }
+}
+function dropWeapon(x,y){
+ // 일반 62% / 희귀 27% / 영웅 9.5% / 전설 1.35% / 신화 0.15%
+ const r=Math.random()*100;
+ let grade=r<62?"일반":r<89?"희귀":r<98.5?"영웅":r<99.85?"전설":"신화";
+ // 너무 높은 등급은 낮은 층에서 제한
+ if(floor===1 && (grade==="전설"||grade==="신화")) grade="희귀";
+ if(floor===2 && grade==="신화") grade="영웅";
+ const pool=weapons.filter(w=>w.grade===grade);
+ const w=pool[Math.floor(Math.random()*pool.length)];
+ drops.push({x,y,type:"weapon",weapon:w});
+}
+function equip(w){
+ if(!owned.includes(w))owned.push(w);
+ currentWeapon=w;
+ msg=`장착: ${w.name} [${w.grade}]`;msgT=2;
+}
+function attack(){
+ if(attackCD>0||state!=="game"||inv)return;
+ attackCD=currentWeapon.speed/1000;
+ const a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+ const d=currentWeapon.base+player.atk+currentWeapon.base*(player.lvl-1)*.06;
+ if(currentWeapon.type==="bow"||currentWeapon.type==="staff"){
+  bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*650,vy:Math.sin(a)*650,dmg:d,life:1.4,type:currentWeapon.type});
+ }else{
+  effects.push({kind:"slash",x:player.x,y:player.y,a,t:.22,r:currentWeapon.type==="greatsword"?70:55});
+  enemies.forEach(e=>{let da=Math.atan2(e.y-player.y,e.x-player.x),dd=dist(player,e);let diff=Math.atan2(Math.sin(da-a),Math.cos(da-a));if(dd<75&&Math.abs(diff)<.75){let crit=Math.random()<currentWeapon.crit;hitEnemy(e,d*(crit?1.8:1),crit)}})
+ }
+}
+function skill(n){
+ if(state!=="game"||inv||cool[n-1]>0)return;
+ let cost=[20,30,45][n-1];if(player.mp<cost){msg="MP 부족!";msgT=.7;return}
+ player.mp-=cost;cool[n-1]=[3,5,8][n-1];
+ const w=currentWeapon,a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+ if(w.type==="dagger"){
+  if(n===1){for(let i=0;i<5;i++){let ang=a-.5+i*.25;bullets.push({x:player.x,y:player.y,vx:Math.cos(ang)*600,vy:Math.sin(ang)*600,dmg:w.base*1.2+player.atk,life:.7,type:"knife"})}}
+  if(n===2){player.x=clamp(player.x+Math.cos(a)*170,30,1170);player.y=clamp(player.y+Math.sin(a)*170,70,650);effects.push({kind:"dash",x:player.x,y:player.y,t:.4})}
+  if(n===3){enemies.forEach(e=>{if(dist(player,e)<170)hitEnemy(e,(w.base+player.atk)*3.2,true)})}
+ }
+ if(w.type==="greatsword"){
+  if(n===1){effects.push({kind:"ring",x:player.x,y:player.y,r:100,t:.35,c:"#ff7a3d"});enemies.forEach(e=>{if(dist(player,e)<110)hitEnemy(e,(w.base+player.atk)*1.8)})}
+  if(n===2){for(let i=0;i<7;i++){let ang=i*Math.PI*2/7;bullets.push({x:player.x,y:player.y,vx:Math.cos(ang)*350,vy:Math.sin(ang)*350,dmg:w.base*1.5+player.atk,life:.8,type:"fire"})}}
+  if(n===3){effects.push({kind:"boom",x:player.x,y:player.y,t:.6});enemies.forEach(e=>{if(dist(player,e)<190)hitEnemy(e,(w.base+player.atk)*3)})}
+ }
+ if(w.type==="staff"){
+  if(n===1)bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*500,vy:Math.sin(a)*500,dmg:w.base*1.7+player.atk,life:2,type:"ice",slow:1.5});
+  if(n===2){effects.push({kind:"ring",x:player.x,y:player.y,r:125,t:.45,c:"#8de8ff"});enemies.forEach(e=>{if(dist(player,e)<125){hitEnemy(e,(w.base+player.atk)*1.5);e.slow=2}})}
+  if(n===3){for(let i=0;i<10;i++){let ang=Math.random()*Math.PI*2;bullets.push({x:player.x+Math.cos(ang)*100,y:player.y+Math.sin(ang)*100,vx:0,vy:0,dmg:w.base*2+player.atk,life:.3,type:"ice"})}enemies.forEach(e=>{if(dist(player,e)<180)hitEnemy(e,(w.base+player.atk)*2.5);e.slow=3})}
+ }
+ if(w.type==="bow"){
+  if(n===1)bullets.push({x:player.x,y:player.y,vx:Math.cos(a)*850,vy:Math.sin(a)*850,dmg:w.base*2+player.atk,life:1.5,type:"arrow"});
+  if(n===2)for(let i=-2;i<=2;i++){let ang=a+i*.16;bullets.push({x:player.x,y:player.y,vx:Math.cos(ang)*720,vy:Math.sin(ang)*720,dmg:w.base*1.15+player.atk,life:1.4,type:"arrow"})}
+  if(n===3){for(let i=0;i<12;i++){let ang=i*Math.PI*2/12;bullets.push({x:player.x,y:player.y,vx:Math.cos(ang)*500,vy:Math.sin(ang)*500,dmg:w.base*2.4+player.atk,life:1.6,type:"dragon"})}}
+ }
+ if(w.type==="scythe"){
+  if(n===1){effects.push({kind:"ring",x:player.x,y:player.y,r:95,t:.35,c:"#ff3d81"});enemies.forEach(e=>{if(dist(player,e)<100)hitEnemy(e,(w.base+player.atk)*2.2)})}
+  if(n===2){for(let i=0;i<3;i++)setTimeout(()=>{enemies.forEach(e=>{if(dist(player,e)<145)hitEnemy(e,(w.base+player.atk)*1.5)});effects.push({kind:"ring",x:player.x,y:player.y,r:145,t:.3,c:"#ff3d81"})},i*180)}
+  if(n===3){enemies.forEach(e=>{if(dist(player,e)<260){hitEnemy(e,(w.base+player.atk)*3.5);e.mark=5}});player.hp=Math.min(player.maxhp,player.hp+45)}
+ }
+}
+
+
+function refreshStock(first=false){
+ const pool=[...weapons];
+ // 가중치: 높은 등급일수록 조금 더 희귀
+ function pick(list,n){
+   let out=[];
+   while(out.length<n && list.length){
+     let weights=list.map(w=>{
+     const r=gradeRank[w.grade];
+     return r===1?55:r===2?28:r===3?10:r===4?2:0.35;
+   });
+     let total=weights.reduce((a,b)=>a+b,0), r=Math.random()*total, idx=0;
+     for(let i=0;i<weights.length;i++){r-=weights[i];if(r<=0){idx=i;break}}
+     out.push(list.splice(idx,1)[0]);
+   }
+   return out;
+ }
+ shopWeapons=pick(pool,Math.min(4,pool.length));
+ const ap=[...armorList.slice(1)];
+ shopArmors=pick(ap,Math.min(4,ap.length));
+ if(!first){
+   if(gold<stockCost){msg=`재입고 비용은 ◆ ${stockCost}입니다`;msgT=1.3;return false}
+   gold-=stockCost;
+   msg="상점 재입고 완료!";msgT=1.5;
+ }
+ return true;
+}
+function buyWeapon(w){
+ const price=w.base*gradeRank[w.grade]*6;
+ if(owned.includes(w)){msg="이미 보유한 무기야!";msgT=1;return}
+ if(gold<price){msg="골드가 부족해!";msgT=1;return}
+ gold-=price;owned.push(w);msg=`${w.name} 구매!`;msgT=1.5;
+}
+function buyArmor(a){
+ if(armor===a){msg="이미 장착 중!";msgT=1;return}
+ if(gold<a.price){msg="골드가 부족해!";msgT=1;return}
+ gold-=a.price;armor=a;player.maxhp=120+player.lvl*18+a.hp;player.hp=Math.min(player.maxhp,player.hp+a.hp);
+ msg=`${a.name} 장착!`;msgT=1.5;
+}
+function buyPotion(){
+ if(gold<35){msg="골드가 부족해!";msgT=1;return}
+ gold-=35;player.hp=Math.min(player.maxhp,player.hp+70);player.mp=Math.min(player.maxmp,player.mp+45);
+ msg="회복 물약 사용!";msgT=1;
+}
+function openShop(){shop=true;inv=false;paused=false}
+function useDrop(d){
+ if(d.type==="potion"){player.hp=Math.min(player.maxhp,player.hp+45);player.mp=Math.min(player.maxmp,player.mp+25);msg="회복 물약 사용";msgT=1}
+ else equip(d.weapon);
+}
+function update(dt){
+ if(state==="town"){handleTownClick();return;}
+ if(state!=="game")return;
+ if(inv||paused)return;
+ player.inv=Math.max(0,player.inv-dt);attackCD=Math.max(0,attackCD-dt);
+ for(let i=0;i<3;i++)cool[i]=Math.max(0,cool[i]-dt);
+ player.mp=Math.min(player.maxmp,player.mp+8*dt);
+ let dx=(keys.d?1:0)-(keys.a?1:0),dy=(keys.s?1:0)-(keys.w?1:0);
+ if(dx||dy){let l=Math.hypot(dx,dy);player.x+=dx/l*player.speed*dt;player.y+=dy/l*player.speed*dt}
+ player.x=clamp(player.x,28,1172);player.y=clamp(player.y,78,650);
+ if(mouse.down)attack();
+
+ bullets.forEach(b=>{b.x+=b.vx*dt;b.y+=b.vy*dt;b.life-=dt;
+  enemies.forEach(e=>{if(b.life>0&&dist(b,e)<e.r+8){hitEnemy(e,b.dmg);b.life=0;if(b.slow)e.slow=b.slow}})
+ });
+ bullets=bullets.filter(b=>b.life>0&&b.x>-30&&b.x<W+30&&b.y>-30&&b.y<H+30);
+ enemies.forEach(e=>{
+  e.hit=Math.max(0,e.hit-dt);e.slow=Math.max(0,(e.slow||0)-dt);e.mark=Math.max(0,(e.mark||0)-dt);
+  let d=dist(player,e);
+  let sp=e.speed*(e.slow?0.45:1);
+  if(e.type==="마법사"||e.type==="던전 군주"){
+   if(d>270){e.x+=(player.x-e.x)/d*sp*dt;e.y+=(player.y-e.y)/d*sp*dt}
+   e.shoot-=dt;
+   if(e.shoot<=0){e.shoot=e.type==="던전 군주"?1.3:2.2;let a=Math.atan2(player.y-e.y,player.x-e.x);bullets.push({x:e.x,y:e.y,vx:Math.cos(a)*260,vy:Math.sin(a)*260,dmg:e.atk*.65,life:3,type:"enemy"})}
+  }else if(d>e.r+player.r+5){e.x+=(player.x-e.x)/d*sp*dt;e.y+=(player.y-e.y)/d*sp*dt}
+  else if(player.inv<=0){player.hp-=Math.max(1,e.atk-player.def-armor.def)*dt;player.inv=.05}
+ });
+ bullets.forEach(b=>{if(b.type==="enemy"&&dist(b,player)<player.r+7&&player.inv<=0){player.hp-=Math.max(1,b.dmg-player.def*.35-armor.def*.35);player.inv=.3;b.life=0;shake=7}});
+ bullets=bullets.filter(b=>b.life>0);
+ enemies=enemies.filter(e=>e.hp>0);
+ drops.forEach(d=>{if(dist(player,d)<34){useDrop(d);d.dead=true}});
+ drops=drops.filter(d=>!d.dead);
+ texts.forEach(t=>t.t-=dt);texts=texts.filter(t=>t.t>0);
+ effects.forEach(e=>e.t-=dt);effects=effects.filter(e=>e.t>0);
+ if(player.hp<=0){state="gameover";return}
+ if(enemies.length===0 && state==="game" && !roomCleared && !finalBoss){
+   roomCleared=true; awaitingNext=true;
+   msg=room>=totalRooms ? "던전 클리어! 아이템을 줍고 → 를 눌러 다음 층으로" : "방 클리어! 아이템을 모두 챙긴 뒤 → 를 누르세요";
+   msgT=3;
+ }
+}
+function draw(){
+ ctx.save();
+ if(shake>0){ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);shake*=.88;if(shake<.3)shake=0}
+ drawBG();
+ if(player){
+   drawDrops();drawBullets();drawEnemies();drawPlayer();drawEffects();drawTexts();drawUI();
+ }
+ if(inv&&player)drawInventory();
+ if(state==="town")drawTown();
+ if(shop)drawShop();
+ if(state==="title")drawTitle();
+ if(state==="gameover")overlay("GAME OVER","Enter 키로 다시 시작");
+ if(state==="victory")overlay("DUNGEON CLEAR!","Enter 키로 다시 도전");
+ ctx.restore();
+}
+function drawBG(){
+ let th=dungeonThemes[Math.min(floor-1,dungeonThemes.length-1)];
+ let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,th.floor);g.addColorStop(1,"#090b12");ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ ctx.fillStyle=th.floor;ctx.fillRect(20,70,W-40,H-90);
+ ctx.strokeStyle=th.wall;ctx.lineWidth=1;
+ for(let x=40;x<W-20;x+=48){ctx.beginPath();ctx.moveTo(x,70);ctx.lineTo(x,H-20);ctx.stroke()}
+ for(let y=90;y<H-20;y+=48){ctx.beginPath();ctx.moveTo(20,y);ctx.lineTo(W-20,y);ctx.stroke()}
+ // room walls/torches
+ ctx.fillStyle=th.wall;ctx.fillRect(20,70,W-40,9);ctx.fillRect(20,H-29,W-40,9);
+ for(let x=70;x<W;x+=150){ctx.fillStyle=th.accent;ctx.beginPath();ctx.arc(x,91,5,0,Math.PI*2);ctx.fill();ctx.shadowBlur=18;ctx.shadowColor=th.accent;ctx.fill();ctx.shadowBlur=0}
+ // exit
+ if(enemies.length===0&&room<=totalRooms){ctx.fillStyle="#66e0a0";ctx.fillRect(1130,315,35,90);ctx.fillStyle="#07110c";ctx.fillRect(1140,325,15,70)}
+}
+function drawPlayer(){
+ ctx.save();ctx.translate(player.x,player.y);
+ ctx.fillStyle="#5e75ff";ctx.beginPath();ctx.arc(0,0,20,0,Math.PI*2);ctx.fill();
+ ctx.strokeStyle=currentWeapon.color;ctx.lineWidth=4;ctx.stroke();
+ let a=Math.atan2(mouse.y-player.y,mouse.x-player.x);
+ ctx.rotate(a);ctx.fillStyle=currentWeapon.color;ctx.fillRect(12,-4,currentWeapon.type==="greatsword"?38:28,8);
+ ctx.restore();
+}
+function drawEnemies(){
+ enemies.forEach(e=>{
+  ctx.save();ctx.translate(e.x,e.y);
+  ctx.fillStyle=e.hit>0?"#fff":enemyColor(e.type);
+  ctx.beginPath();ctx.arc(0,0,e.r,0,Math.PI*2);ctx.fill();
+  if(e.type==="던전 군주"){ctx.strokeStyle="#ff386f";ctx.lineWidth=5;ctx.stroke()}
+  ctx.fillStyle="#111";ctx.fillRect(-e.r,-e.r-13,e.r*2,5);ctx.fillStyle="#e84d65";ctx.fillRect(-e.r,-e.r-13,e.r*2*(e.hp/e.maxhp),5);
+  ctx.restore();
+ });
+}
+function enemyColor(t){return {
+ "슬라임":"#59d47b","고블린":"#a9c45d","해골":"#d7d1bd","오크":"#9c6048",
+ "마법사":"#7b69d6","박쥐":"#9a6de0","기사":"#6685a8","골렘":"#887a6b",
+ "던전 군주":"#a62958"
+}[t]||"#fff"}
+function drawBullets(){
+ bullets.forEach(b=>{ctx.fillStyle=b.type==="enemy"?"#ff496c":b.type==="ice"?"#9fefff":b.type==="fire"?"#ff8a3d":currentWeapon.color;ctx.beginPath();ctx.arc(b.x,b.y,b.type==="dragon"?8:5,0,Math.PI*2);ctx.fill()})
+}
+function drawDrops(){
+ drops.forEach(d=>{
+  ctx.save();ctx.translate(d.x,d.y);ctx.rotate(performance.now()/600);
+  ctx.fillStyle=d.type==="potion"?"#55e09a":d.weapon.color;ctx.fillRect(-10,-10,20,20);ctx.restore();
+  if(d.type==="weapon"){ctx.fillStyle=d.weapon.color;ctx.font="12px Arial";ctx.textAlign="center";ctx.fillText(d.weapon.grade, d.x,d.y-17)}
+ });
+}
+function drawEffects(){
+ effects.forEach(e=>{
+  ctx.save();ctx.globalAlpha=Math.max(0,e.t/.6);
+  if(e.kind==="slash"){ctx.translate(e.x,e.y);ctx.rotate(e.a);ctx.strokeStyle=currentWeapon.color;ctx.lineWidth=12;ctx.beginPath();ctx.arc(0,0,e.r,-.75,.75);ctx.stroke()}
+  if(e.kind==="ring"){ctx.strokeStyle=e.c;ctx.lineWidth=7;ctx.beginPath();ctx.arc(e.x,e.y,e.r*(1-e.t/.6),0,Math.PI*2);ctx.stroke()}
+  if(e.kind==="boom"){ctx.fillStyle="#ff6b3d";ctx.beginPath();ctx.arc(e.x,e.y,190*(1-e.t/.6),0,Math.PI*2);ctx.fill()}
+  if(e.kind==="dash"){ctx.strokeStyle="#8b7cff";ctx.lineWidth=10;ctx.beginPath();ctx.arc(e.x,e.y,45,0,Math.PI*2);ctx.stroke()}
+  ctx.restore()
+ });
+}
+function drawTexts(){texts.forEach(t=>{ctx.globalAlpha=Math.min(1,t.t*2);ctx.fillStyle=t.c;ctx.font="bold 16px Arial";ctx.textAlign="center";ctx.fillText(t.s,t.x,t.y-(1-t.t)*25);ctx.globalAlpha=1})}
+function drawUI(){
+ // top bars
+ panel(20,14,400,45,"#121725");
+ ctx.fillStyle="#fff";ctx.font="bold 18px Arial";ctx.textAlign="left";ctx.fillText(`Lv.${player.lvl}  ${currentWeapon.name}`,35,34);
+ ctx.fillStyle="#777d90";ctx.font="12px Arial";ctx.fillText(`${currentWeapon.grade} · ${currentWeapon.desc}`,35,50);
+ bar(440,16,240,14,player.hp/player.maxhp,"#e84d65",`HP ${Math.ceil(player.hp)}/${player.maxhp}`);
+ bar(690,16,190,14,player.mp/player.maxmp,"#4d9fe8",`MP ${Math.ceil(player.mp)}`);
+ bar(890,16,190,14,player.xp/player.next,"#d8a94c",`XP ${Math.floor(player.xp)}/${player.next}`);
+ ctx.fillStyle="#f1c75b";ctx.font="bold 16px Arial";ctx.fillText("◆ "+gold,1090,31);
+ // skill boxes
+ for(let i=0;i<3;i++){let x=25+i*130,y=655;panel(x,y,118,48,"#121725");ctx.strokeStyle=cool[i]>0?"#555":"#7e8cff";ctx.strokeRect(x,y,118,48);ctx.fillStyle="#fff";ctx.font="bold 13px Arial";ctx.fillText(`${i+1} ${currentWeapon.skills[i]}`,x+8,y+19);ctx.fillStyle="#9da5b8";ctx.font="11px Arial";ctx.fillText(cool[i]>0?cool[i].toFixed(1)+"s":"READY",x+8,y+37)}
+ ctx.fillStyle="#aeb6c9";ctx.font="14px Arial";ctx.textAlign="right";ctx.fillText(`FLOOR ${floor}  ·  ROOM ${Math.min(room,totalRooms)}/${totalRooms}`,1170,52);
+ctx.fillStyle="#9aa5ba";ctx.font="12px Arial";ctx.fillText(`방어 ${player.def+armor.def} · 갑옷 ${armor.name} · B 상점 · H 마을`,1170,67);
+ if(roomCleared && state==="game"){
+   ctx.fillStyle="#f1c75b";ctx.font="bold 18px Arial";ctx.textAlign="center";
+   ctx.fillText(finalBoss ? "아이템을 모두 줍고 → 를 눌러 클리어" : "아이템을 모두 줍고 → 를 눌러 다음 방으로",600,610);
+ }
+}
+function bar(x,y,w,h,p,col,label){ctx.fillStyle="#080a10";ctx.fillRect(x,y,w,h);ctx.fillStyle=col;ctx.fillRect(x,y,w*clamp(p,0,1),h);ctx.fillStyle="#fff";ctx.font="10px Arial";ctx.textAlign="center";ctx.fillText(label,x+w/2,y+h-3)}
+function panel(x,y,w,h,col){ctx.fillStyle=col;ctx.fillRect(x,y,w,h);ctx.strokeStyle="#343c50";ctx.strokeRect(x,y,w,h)}
+function drawInventory(){
+ ctx.fillStyle="rgba(3,5,10,.86)";ctx.fillRect(0,0,W,H);
+ panel(120,75,960,570,"#101521");
+ ctx.fillStyle="#fff";ctx.font="bold 28px Arial";ctx.textAlign="left";ctx.fillText("INVENTORY",155,115);
+ ctx.font="14px Arial";ctx.fillStyle="#8e98ad";ctx.fillText("무기를 클릭해서 장착 · ESC로 닫기",155,138);
+ owned.forEach((w,i)=>{
+  let x=155+(i%3)*285,y=165+Math.floor(i/3)*170;
+  panel(x,y,255,145,w===currentWeapon?"#202b45":"#171c29");
+  ctx.fillStyle=w.color;ctx.font="bold 19px Arial";ctx.fillText(w.name,x+18,y+30);
+  ctx.fillStyle="#fff";ctx.font="13px Arial";ctx.fillText(w.grade,x+18,y+52);
+  ctx.fillStyle="#aeb6c7";ctx.fillText(`공격력 +${w.base}  치명타 ${Math.floor(w.crit*100)}%`,x+18,y+75);
+  ctx.fillText(w.desc,x+18,y+97);ctx.fillStyle=w.color;ctx.fillText("스킬: "+w.skills.join(" / "),x+18,y+120);
+  if(w===currentWeapon){ctx.fillStyle="#69e2a1";ctx.fillText("EQUIPPED",x+170,y+30)}
+  else{ctx.fillStyle="#fff";ctx.fillText("클릭해서 장착",x+150,y+125)}
+ });
+ // click detection
+ if(mouse.down){owned.forEach((w,i)=>{let x=155+(i%3)*285,y=165+Math.floor(i/3)*170;if(mouse.x>x&&mouse.x<x+255&&mouse.y>y&&mouse.y<y+145){equip(w);mouse.down=false}})}
+}
+
+
+function handleTownClick(){
+ if(!mouse.down) return;
+ // 대장간: 방어구 정비
+ if(mouse.x>=170&&mouse.x<=420&&mouse.y>=225&&mouse.y<=445){
+   shop=true;shopTab="armor";town=false;mouse.down=false;return;
+ }
+ // 장비 상점
+ if(mouse.x>=475&&mouse.x<=725&&mouse.y>=225&&mouse.y<=445){
+   shop=true;shopTab="weapon";town=false;mouse.down=false;return;
+ }
+ // 던전 입구
+ if(mouse.x>=780&&mouse.x<=1030&&mouse.y>=225&&mouse.y<=445){
+   town=false;state="game";nextRoom();mouse.down=false;return;
+ }
+}
+function drawTown(){
+ ctx.fillStyle="rgba(6,8,13,.96)";ctx.fillRect(0,0,W,H);
+ ctx.textAlign="center";ctx.fillStyle="#f2d28b";ctx.font="bold 48px Arial";ctx.fillText("모험가의 마을",600,125);
+ ctx.fillStyle="#aab3c8";ctx.font="17px Arial";ctx.fillText(`현재 골드 ◆ ${gold}   ·   B: 상점`,600,160);
+ // buildings
+ panel(170,225,250,220,"#172032");panel(475,225,250,220,"#1d2030");panel(780,225,250,220,"#201a2c");
+ ctx.fillStyle="#fff";ctx.font="bold 24px Arial";ctx.fillText("⚒ 대장간",295,275);ctx.fillText("✦ 장비 상점",600,275);ctx.fillText("☠ 던전 입구",905,275);
+ ctx.font="12px Arial";ctx.fillStyle="#6fe0a2";ctx.fillText("클릭",295,415);ctx.fillText("클릭",600,415);ctx.fillText("클릭",905,415);
+ ctx.fillStyle="#8f9ab0";ctx.font="14px Arial";
+ ctx.fillText("방어구 정비",295,310);ctx.fillText("무기·방어구·물약",600,310);ctx.fillText("다음 층으로 출발",905,310);
+ ctx.fillStyle="#fff";ctx.font="bold 17px Arial";ctx.fillText("ENTER: 던전 출발",600,535);
+}
+function drawShop(){
+ ctx.fillStyle="rgba(3,5,10,.94)";ctx.fillRect(0,0,W,H);
+ panel(80,55,1040,610,"#101521");
+ ctx.textAlign="left";ctx.fillStyle="#fff";ctx.font="bold 30px Arial";ctx.fillText("✦ 모험가 상점",115,100);
+ ctx.fillStyle="#f1c75b";ctx.font="bold 18px Arial";ctx.fillText("◆ "+gold,970,100);
+ ctx.fillStyle="#fff";ctx.font="bold 13px Arial";ctx.fillText(`↻ 재입고 ◆ ${stockCost}`,820,145);
+ // tabs
+ const tabs=[["weapon","무기"],["armor","방어구"],["potion","물약"]];
+ tabs.forEach((t,i)=>{let x=115+i*145;panel(x,125,130,42,shopTab===t[0]?"#263452":"#171d2a");ctx.fillStyle="#fff";ctx.font="bold 15px Arial";ctx.fillText(t[1],x+43,151)});
+ if(shopTab==="weapon"){
+  shopWeapons.forEach((w,i)=>{
+   let x=115+(i%2)*490,y=190+Math.floor(i/2)*125;
+   panel(x,y,455,105,"#171c29");
+   ctx.fillStyle=w.color;ctx.font="bold 18px Arial";ctx.fillText(w.name+" ["+w.grade+"]",x+18,y+28);
+   ctx.fillStyle="#aeb6c7";ctx.font="13px Arial";ctx.fillText(`공격 ${w.base} · 치명타 ${Math.floor(w.crit*100)}% · ${w.desc}`,x+18,y+51);
+   ctx.fillStyle=w.color;ctx.fillText("스킬: "+w.skills.join(" / "),x+18,y+73);
+   ctx.fillStyle="#f1c75b";ctx.fillText(owned.includes(w)?"보유":`◆ ${w.base*gradeRank[w.grade]*6}`,x+350,y+29);
+   ctx.fillStyle="#fff";ctx.fillText("클릭해서 구매",x+330,y+78);
+  });
+ } else if(shopTab==="armor"){
+  shopArmors.forEach((a,i)=>{
+   let x=115+(i%2)*490,y=190+Math.floor(i/2)*125;
+   panel(x,y,455,105,"#171c29");ctx.fillStyle=a.color;ctx.font="bold 18px Arial";ctx.fillText(a.name+" ["+a.grade+"]",x+18,y+28);
+   ctx.fillStyle="#aeb6c7";ctx.font="13px Arial";ctx.fillText(`방어 +${a.def} · 최대 HP +${a.hp}`,x+18,y+54);
+   ctx.fillStyle="#f1c75b";ctx.fillText(a===armor?"장착중":`◆ ${a.price}`,x+350,y+29);
+  });
+ } else {
+  ctx.fillStyle="#fff";ctx.font="bold 23px Arial";ctx.fillText("회복 물약",150,220);
+  ctx.fillStyle="#aeb6c7";ctx.font="15px Arial";ctx.fillText("HP +70 / MP +45",150,250);
+  ctx.fillStyle="#f1c75b";ctx.fillText("◆ 35",150,280);
+ }
+ ctx.fillStyle="#8993aa";ctx.font="13px Arial";ctx.fillText("B 또는 ESC: 닫기 · 재입고하면 20종 중 랜덤 4종이 진열됩니다",115,630);
+ // mouse actions
+ if(mouse.down){
+   // 재입고 버튼
+   if(mouse.x>800&&mouse.x<1110&&mouse.y>120&&mouse.y<170){
+     refreshStock(false); mouse.down=false;
+   }
+   // tabs
+   tabs.forEach((t,i)=>{let x=115+i*145;if(mouse.x>x&&mouse.x<x+130&&mouse.y>125&&mouse.y<167){shopTab=t[0];mouse.down=false}});
+   if(shopTab==="weapon"){
+    shopWeapons.forEach((w,i)=>{let x=115+(i%2)*490,y=190+Math.floor(i/2)*125;if(mouse.x>x&&mouse.x<x+455&&mouse.y>y&&mouse.y<y+105){buyWeapon(w);mouse.down=false}})
+   }else if(shopTab==="armor"){
+    shopArmors.forEach((a,i)=>{let x=115+(i%2)*490,y=190+Math.floor(i/2)*125;if(mouse.x>x&&mouse.x<x+455&&mouse.y>y&&mouse.y<y+105){buyArmor(a);mouse.down=false}})
+   }else if(shopTab==="potion"&&mouse.x>130&&mouse.x<600&&mouse.y>190&&mouse.y<320){buyPotion();mouse.down=false}
+ }
+}
+
+function drawTitle(){
+ ctx.fillStyle="rgba(4,5,10,.9)";ctx.fillRect(0,0,W,H);
+ ctx.textAlign="center";ctx.fillStyle="#fff";ctx.font="bold 64px Arial";ctx.fillText("DUNGEON RELIC",600,220);
+ ctx.fillStyle="#7e8cff";ctx.font="22px Arial";ctx.fillText("무기를 얻고 · 스킬을 바꾸고 · 던전을 정복하라",600,265);
+ ctx.fillStyle="#d7dbea";ctx.font="18px Arial";ctx.fillText("5등급 × 4종 = 총 20개 무기",600,315);
+ ctx.fillStyle="#9da6bb";ctx.font="15px Arial";ctx.fillText("마우스 공격 · 1/2/3 스킬 · WASD 이동 · I 인벤토리",600,360);
+ ctx.fillStyle="#fff";ctx.font="bold 22px Arial";ctx.fillText("ENTER를 눌러 시작",600,440);
+ ctx.fillStyle="#7f8aa3";ctx.font="14px Arial";ctx.fillText("상점 재입고 · 무기 · 방어구 · 4개 던전 · 보스",600,475);
+}
+function overlay(title,sub){
+ ctx.fillStyle="rgba(3,4,8,.82)";ctx.fillRect(0,0,W,H);ctx.textAlign="center";
+ ctx.fillStyle=title.includes("CLEAR")?"#ffd75c":"#ff5570";ctx.font="bold 58px Arial";ctx.fillText(title,600,285);
+ ctx.fillStyle="#fff";ctx.font="20px Arial";ctx.fillText(sub,600,335);
+}
+function loop(t){let dt=Math.min(.033,(t-last)/1000||0);last=t;update(dt);draw();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
